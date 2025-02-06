@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 
 class FileServer:
     def __init__(
-            self,
-            root_dir: str,
-            allowed_extensions: Optional[List[str]] = None,
-            blacklisted_subfolders: Optional[List[str]] = None,
+        self,
+        root_dir: str,
+        allowed_extensions: Optional[List[str]] = None,
+        blacklisted_subfolders: Optional[List[str]] = None,
     ):
         self.root_dir = os.path.abspath(root_dir)
         self.allowed_extensions = set(allowed_extensions or [
@@ -49,7 +49,7 @@ class FileServer:
         return False
 
     def get_files_and_subfolders_in_subfolder(
-            self, subfolder: str, base_url: str, sort_by: Optional[str] = None
+        self, subfolder: str, base_url: str, sort_by: Optional[str] = None
     ) -> Dict[str, List[str]]:
         """
         Returns both the list of full file URLs and the list of subfolder names in the requested subfolder.
@@ -71,12 +71,11 @@ class FileServer:
         # Get list of eligible files (construct full URLs)
         files = [
             quote(f) for f in os.listdir(full_dir_path)
-            if
-            os.path.isfile(os.path.join(full_dir_path, f)) and os.path.splitext(f)[1].lower() in self.allowed_extensions
+            if os.path.isfile(os.path.join(full_dir_path, f)) and os.path.splitext(f)[1].lower() in self.allowed_extensions
         ]
 
         # Convert filenames into full URLs
-        file_urls = [f"{base_url}/{subfolder}/{file}" for file in files]
+        file_urls = [f"{base_url}/files/{subfolder}/{file}" for file in files]
 
         # Get list of subfolders
         subfolders = [
@@ -90,21 +89,19 @@ class FileServer:
         elif sort_by == "date":
             files_with_dates = [(file, os.path.getmtime(os.path.join(full_dir_path, file))) for file in files]
             files_with_dates.sort(key=lambda x: x[1], reverse=True)
-            file_urls = [f"{base_url}/{subfolder}/{quote(file[0])}" for file in files_with_dates]
+            file_urls = [f"{base_url}/files/{subfolder}/{quote(file[0])}" for file in files_with_dates]
 
         logger.info(f"Returning {len(file_urls)} files and {len(subfolders)} subfolders from {subfolder}")
         return {"files": file_urls, "subfolders": subfolders}
 
 
 class FileServerAPI:
-    def __init__(self, file_server: FileServer, host: str = "0.0.0.0", port: int = 5000):
+    def __init__(self, file_server: FileServer, host: str = "0.0.0.0", port: int = 5000, public_url: Optional[str] = None):
         self.file_server = file_server
         self.host = host
         self.port = port
+        self.public_url = public_url if public_url else f"http://{self.host}:{self.port}"
         self.app = Flask(__name__)
-
-        # Base URL for file access
-        self.base_url = f"http://{self.host}:{self.port}/files"
 
         # Serve files from the root directory
         @self.app.route('/files/<path:filepath>', methods=['GET'])
@@ -149,7 +146,7 @@ class FileServerAPI:
                 if not subfolder:
                     logger.info("No subfolder name defined, using root directory.")
 
-                result = self.file_server.get_files_and_subfolders_in_subfolder(subfolder, self.base_url, sort_by)
+                result = self.file_server.get_files_and_subfolders_in_subfolder(subfolder, self.public_url, sort_by)
                 return jsonify(result)
 
             except ValueError as e:
@@ -167,7 +164,8 @@ class FileServerAPI:
 if __name__ == "__main__":
     root_directory = r"C:\Users\PC\Pictures"  # Change this to your desired directory
     blacklisted_folders = ["ignore", "private"]  # Define blacklisted subfolder names
+    public_url = "http://servers.ikubaysan.com:2087"  # Set your custom domain
 
     server = FileServer(root_directory, blacklisted_subfolders=blacklisted_folders)
-    api = FileServerAPI(server, host="localhost", port=6901)
+    api = FileServerAPI(server, host="0.0.0.0", port=2087, public_url=public_url)
     api.run()
