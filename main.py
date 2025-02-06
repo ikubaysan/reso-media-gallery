@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 from flask import Flask, request, send_from_directory
+import mimetypes
 from typing import List, Optional
 from urllib.parse import quote, unquote
 
@@ -63,6 +64,21 @@ class FileServer:
         Returns a string where each item is exactly 260 characters long:
         <count of media files>|<count of subfolders>|<media file 0>|<media file 1>|...|<subfolder 0>|<subfolder 1>
         """
+
+        # If subfolder starts with a slash, remove it
+        if subfolder.startswith("/"):
+            subfolder = subfolder[1:]
+
+        # If subfolder ends with a slash, remove it
+        if subfolder.endswith("/"):
+            subfolder = subfolder[:-1]
+
+        # Replace all \ with /
+        subfolder = subfolder.replace("\\", "/")
+
+        # Replace all consecutive slashes with a single slash
+        subfolder = os.path.normpath(subfolder)
+
         full_dir_path = os.path.abspath(os.path.join(self.root_dir, subfolder))
         logger.info(f"Requested subfolder: {full_dir_path}")
 
@@ -83,7 +99,10 @@ class FileServer:
             if os.path.isfile(file_path):
                 ext = os.path.splitext(f)[1].lower()
                 if self.allowed_extensions is None or ext in self.allowed_extensions:
-                    files.append(f"{base_url}/files/{subfolder}/{quote(f)}")
+                    if subfolder == "":
+                        files.append(f"{base_url}/files/{quote(f)}")
+                    else:
+                        files.append(f"{base_url}/files/{subfolder}/{quote(f)}")
 
         # Get list of subfolders
         subfolders = []
