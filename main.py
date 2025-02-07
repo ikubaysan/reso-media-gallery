@@ -54,8 +54,10 @@ class FileServer:
         return False
 
     def format_string(self, value: str) -> str:
-        """Pads or truncates a string to exactly 260 characters."""
-        return f"{value:<{MAX_LENGTH}}"[:MAX_LENGTH]
+        """Ensures the string is exactly 260 characters, including the separator '|'."""
+        max_content_length = MAX_LENGTH - 1  # Reserve space for '|'
+        formatted_value = f"{value:<{max_content_length}}"[:max_content_length]  # Ensure length
+        return formatted_value + "|"  # Append '|' to the end
 
     def get_files_and_subfolders_in_subfolder(
         self, subfolder: str, base_url: str, sort_by: Optional[str] = None
@@ -80,7 +82,7 @@ class FileServer:
         subfolder = os.path.normpath(subfolder)
 
         full_dir_path = os.path.abspath(os.path.join(self.root_dir, subfolder))
-        logger.info(f"Requested subfolder: {full_dir_path}")
+        logger.info(f"Requested subfolder: {subfolder}, full path: {full_dir_path}")
 
         # Security check: Prevent directory traversal attacks
         if not full_dir_path.startswith(self.root_dir):
@@ -99,7 +101,7 @@ class FileServer:
             if os.path.isfile(file_path):
                 ext = os.path.splitext(f)[1].lower()
                 if self.allowed_extensions is None or ext in self.allowed_extensions:
-                    if subfolder == "":
+                    if subfolder in ["", "."]:
                         files.append(f"{base_url}/files/{quote(f)}")
                     else:
                         files.append(f"{base_url}/files/{subfolder}/{quote(f)}")
@@ -119,12 +121,13 @@ class FileServer:
             files = [file[0] for file in files_with_dates]
 
         # Construct the pipe-separated response string
-        result = self.format_string(str(len(files))) + "|" + self.format_string(str(len(subfolders)))
+        result = self.format_string(str(len(subfolders))) + self.format_string(str(len(files)))
+
+        for folder in subfolders:
+            result += self.format_string(folder)
 
         for file in files:
-            result += "|" + self.format_string(file)
-        for folder in subfolders:
-            result += "|" + self.format_string(folder)
+            result += self.format_string(file)
 
         return result
 
