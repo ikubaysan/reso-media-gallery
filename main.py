@@ -1,6 +1,8 @@
 import os
 import sys
 import logging
+import sqlite3
+import uuid
 
 from PIL import Image
 from flask import Flask, request, send_from_directory
@@ -20,13 +22,57 @@ def configure_console_logger(level=logging.INFO):
     logger.addHandler(console_handler)
 
 
+# Initialize logger
 configure_console_logger()
 logger = logging.getLogger(__name__)
 
-THUMBNAIL_DIR = "thumbnails"  # Relative to root_dir
-THUMBNAIL_SIZE = (200, 200)  # Adjust thumbnail size as needed
+# Global constants
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # Directory of this script
+THUMBNAIL_DIR = os.path.join(SCRIPT_DIR, "thumbnails")  # Separate thumbnail directory
+THUMBNAIL_SIZE = (200, 200)  # Thumbnail dimensions
+DB_PATH = os.path.join(SCRIPT_DIR, "thumbnails.db")  # SQLite DB file
+
+# Ensure thumbnail directory exists
+os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
 MAX_LENGTH = 260  # Fixed length for each part of the response
+
+
+
+class ThumbnailDatabase:
+    """Handles storing and retrieving thumbnail mappings using SQLite."""
+
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self._initialize_db()
+
+    def _initialize_db(self):
+        """Create the database table if it doesn't exist."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS thumbnails (
+                    original_path TEXT PRIMARY KEY,
+                    thumbnail_guid TEXT UNIQUE
+                )
+            """)
+            conn.commit()
+
+    def get_thumbnail_guid(self, original_path: str) -> Optional[str]:
+        """Retrieve the GUID filename for a given original file, if it exists."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT thumbnail_guid FROM thumbnails WHERE original_path = ?", (original_path,))
+            result = cursor.fetchone()
+            return result[0] if result else None
+
+    def store_thumbnail_guid(self, original_path: str, thumbnail_guid: str):
+        """Save a new GUID-based thumbnail mapping."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR REPLACE INTO thumbnails (original_path, thumbnail_guid) VALUES (?, ?)",
+                           (original_path, thumbnail_guid))
+            conn.commit()
 
 
 class FileServer:
@@ -38,6 +84,7 @@ class FileServer:
     ):
 
         self.root_dir = os.path.abspath(root_dir)
+        self.db = ThumbnailDatabase(DB_PATH)
         self.thumbnail_dir = os.path.join(self.root_dir, THUMBNAIL_DIR)
         self.allowed_extensions = set(allowed_extensions) if allowed_extensions else None  # Allow all if empty
         self.blacklisted_subfolders = set(blacklisted_subfolders or [])
@@ -53,23 +100,31 @@ class FileServer:
 
 
 
-    def get_thumbnail_path(self, filepath: str) -> str:
-        """Generate a thumbnail path based on the original file path."""
-        rel_path = os.path.relpath(filepath, self.root_dir)  # Relative path from root
-        return os.path.join(self.thumbnail_dir, rel_path)
+    def get_thumbnail_path(self, guid: str) -> str:
+        """Generates a unique thumbnail path based on the GUID."""
+        return os.path.join(THUMBNAIL_DIR, f"{guid}.jpg")
 
-    def generate_thumbnail(self, filepath: str) -> str:
-        """Generate and save a thumbnail for an image file."""
-        thumbnail_path = self.get_thumbnail_path(filepath)
+    def generate_thumbnail(self, filepath: str) -> Optional[str]:
+        """Generate and save a thumbnail for an image file, storing the path in the database."""
+        # Check if we already have a GUID mapping for this file
+        thumbnail_guid = self.db.get_thumbnail_guid(filepath)
 
-        # Ensure the directory exists
-        os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
+        if not thumbnail_guid:
+            thumbnail_guid = str(uuid.uuid4())  # Generate new GUID
+            self.db.store_thumbnail_guid(filepath, thumbnail_guid)
+
+        thumbnail_path = self.get_thumbnail_path(thumbnail_guid)
+
+        # Check if the file already exists before regenerating
+        if os.path.exists(thumbnail_path):
+            return thumbnail_path
 
         try:
             with Image.open(filepath) as img:
-                img.thumbnail(THUMBNAIL_SIZE)  # Resize while keeping aspect ratio
+                img.thumbnail(THUMBNAIL_SIZE)
                 img.save(thumbnail_path, format="JPEG")
                 logger.info(f"Thumbnail generated: {thumbnail_path}")
+
             return thumbnail_path
         except Exception as e:
             logger.error(f"Failed to generate thumbnail for {filepath}: {e}")
@@ -237,13 +292,12 @@ class FileServerAPI:
                 logger.error(f"Internal error: {e}")
                 return "Internal Server Error", 500
 
-
-
     def serve_static_file(self, filepath, base_path):
         """Generic file serving function with security checks."""
         filepath = unquote(filepath)
         full_path = os.path.abspath(os.path.join(base_path, filepath))
 
+        # Security check: Prevent directory traversal attacks
         if not full_path.startswith(base_path):
             logger.warning(f"Security Alert: Attempted access outside root - {filepath}")
             return "Access denied", 403
@@ -260,10 +314,11 @@ class FileServerAPI:
         return send_from_directory(os.path.dirname(full_path), os.path.basename(full_path))
 
     def serve_or_generate_thumbnail(self, filepath):
-        """Serve cached thumbnails, or generate them on demand."""
+        """Serve cached thumbnails or generate them on demand."""
         filepath = unquote(filepath)
         original_file_path = os.path.abspath(os.path.join(self.file_server.root_dir, filepath))
 
+        # Security check to prevent directory traversal attacks
         if not original_file_path.startswith(self.file_server.root_dir):
             logger.warning(f"Security Alert: Attempted access outside root - {filepath}")
             return "Access denied", 403
@@ -272,24 +327,19 @@ class FileServerAPI:
             logger.warning(f"File not found: {original_file_path}")
             return "File not found", 404
 
-        ext = os.path.splitext(original_file_path)[1].lower()
-        if self.file_server.allowed_extensions is not None and ext not in self.file_server.allowed_extensions:
-            logger.warning(f"Forbidden file access: {original_file_path}")
-            return "File type not allowed", 403
-
-        # Determine the expected thumbnail path
-        thumbnail_path = self.file_server.get_thumbnail_path(original_file_path)
-
-        if not os.path.exists(thumbnail_path):
+        # Lookup the GUID filename
+        thumbnail_guid = self.file_server.db.get_thumbnail_guid(original_file_path)
+        if not thumbnail_guid:
             logger.info(f"Thumbnail not found for {filepath}. Generating...")
-            generated_path = self.file_server.generate_thumbnail(original_file_path)
+            self.file_server.generate_thumbnail(original_file_path)
+            thumbnail_guid = self.file_server.db.get_thumbnail_guid(original_file_path)
 
-            if not generated_path:
-                logger.error(f"Could not generate thumbnail for {filepath}")
-                return "Thumbnail generation failed", 500
+        if not thumbnail_guid:
+            return "Thumbnail generation failed", 500
+
+        thumbnail_path = self.file_server.get_thumbnail_path(thumbnail_guid)
 
         return send_from_directory(os.path.dirname(thumbnail_path), os.path.basename(thumbnail_path))
-
 
 
     def run(self):
