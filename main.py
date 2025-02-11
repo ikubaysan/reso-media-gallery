@@ -1,6 +1,8 @@
 import os
 import sys
 import logging
+
+from PIL import Image
 from flask import Flask, request, send_from_directory
 import mimetypes
 from typing import List, Optional
@@ -21,6 +23,9 @@ def configure_console_logger(level=logging.INFO):
 configure_console_logger()
 logger = logging.getLogger(__name__)
 
+THUMBNAIL_DIR = "thumbnails"  # Relative to root_dir
+THUMBNAIL_SIZE = (200, 200)  # Adjust thumbnail size as needed
+
 MAX_LENGTH = 260  # Fixed length for each part of the response
 
 
@@ -31,7 +36,9 @@ class FileServer:
         allowed_extensions: Optional[List[str]] = None,
         blacklisted_subfolders: Optional[List[str]] = None,
     ):
+
         self.root_dir = os.path.abspath(root_dir)
+        self.thumbnail_dir = os.path.join(self.root_dir, THUMBNAIL_DIR)
         self.allowed_extensions = set(allowed_extensions) if allowed_extensions else None  # Allow all if empty
         self.blacklisted_subfolders = set(blacklisted_subfolders or [])
 
@@ -43,6 +50,31 @@ class FileServer:
             logger.info(f"Allowed Extensions: {', '.join(self.allowed_extensions)}")
         else:
             logger.info("All file extensions are allowed.")
+
+
+
+    def get_thumbnail_path(self, filepath: str) -> str:
+        """Generate a thumbnail path based on the original file path."""
+        rel_path = os.path.relpath(filepath, self.root_dir)  # Relative path from root
+        return os.path.join(self.thumbnail_dir, rel_path)
+
+    def generate_thumbnail(self, filepath: str) -> str:
+        """Generate and save a thumbnail for an image file."""
+        thumbnail_path = self.get_thumbnail_path(filepath)
+
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(thumbnail_path), exist_ok=True)
+
+        try:
+            with Image.open(filepath) as img:
+                img.thumbnail(THUMBNAIL_SIZE)  # Resize while keeping aspect ratio
+                img.save(thumbnail_path, format="JPEG")
+                logger.info(f"Thumbnail generated: {thumbnail_path}")
+            return thumbnail_path
+        except Exception as e:
+            logger.error(f"Failed to generate thumbnail for {filepath}: {e}")
+            return None
+
 
     def is_blacklisted(self, subfolder: str) -> bool:
         """Checks if any part of the requested subfolder is blacklisted."""
@@ -175,36 +207,13 @@ class FileServerAPI:
         # Serve files from the root directory
         @self.app.route('/files/<path:filepath>', methods=['GET'])
         def serve_file(filepath):
-            """Serves files ensuring only allowed extensions are accessible."""
+            """Serves files from /files/."""
+            return self.serve_static_file(filepath, base_path=self.file_server.root_dir)
 
-            # Decode URL-encoded characters (e.g., spaces, special characters)
-            filepath = unquote(filepath)
-
-            # Compute full path
-            full_path = os.path.abspath(os.path.join(self.file_server.root_dir, filepath))
-
-            # Security: Ensure the file is within the allowed root directory
-            if not full_path.startswith(self.file_server.root_dir):
-                logger.warning(f"Security Alert: Attempted access outside root - {filepath}")
-                return "Access denied", 403
-
-            # Ensure file exists
-            if not os.path.exists(full_path) or not os.path.isfile(full_path):
-                logger.warning(f"File not found: {full_path}")
-                return "File not found", 404
-
-            # Ensure file extension is allowed
-            ext = os.path.splitext(full_path)[1].lower()
-            if self.file_server.allowed_extensions is not None and ext not in self.file_server.allowed_extensions:
-                logger.warning(f"Forbidden file access: {full_path}")
-                return "File type not allowed", 403
-
-            # Get the directory and file name separately
-            directory, filename = os.path.split(full_path)
-
-            # Serve file correctly
-            return send_from_directory(directory, filename)
-
+        @self.app.route('/thumbs/<path:filepath>', methods=['GET'])
+        def serve_thumbnail(filepath):
+            """Serves or generates thumbnails dynamically."""
+            return self.serve_or_generate_thumbnail(filepath)
 
         # This should be a GET endpoint, but we have to use POST because
         # Resonite can't send a body with a GET request.pp
@@ -227,6 +236,61 @@ class FileServerAPI:
             except Exception as e:
                 logger.error(f"Internal error: {e}")
                 return "Internal Server Error", 500
+
+
+
+    def serve_static_file(self, filepath, base_path):
+        """Generic file serving function with security checks."""
+        filepath = unquote(filepath)
+        full_path = os.path.abspath(os.path.join(base_path, filepath))
+
+        if not full_path.startswith(base_path):
+            logger.warning(f"Security Alert: Attempted access outside root - {filepath}")
+            return "Access denied", 403
+
+        if not os.path.exists(full_path) or not os.path.isfile(full_path):
+            logger.warning(f"File not found: {full_path}")
+            return "File not found", 404
+
+        ext = os.path.splitext(full_path)[1].lower()
+        if self.file_server.allowed_extensions is not None and ext not in self.file_server.allowed_extensions:
+            logger.warning(f"Forbidden file access: {full_path}")
+            return "File type not allowed", 403
+
+        return send_from_directory(os.path.dirname(full_path), os.path.basename(full_path))
+
+    def serve_or_generate_thumbnail(self, filepath):
+        """Serve cached thumbnails, or generate them on demand."""
+        filepath = unquote(filepath)
+        original_file_path = os.path.abspath(os.path.join(self.file_server.root_dir, filepath))
+
+        if not original_file_path.startswith(self.file_server.root_dir):
+            logger.warning(f"Security Alert: Attempted access outside root - {filepath}")
+            return "Access denied", 403
+
+        if not os.path.exists(original_file_path) or not os.path.isfile(original_file_path):
+            logger.warning(f"File not found: {original_file_path}")
+            return "File not found", 404
+
+        ext = os.path.splitext(original_file_path)[1].lower()
+        if self.file_server.allowed_extensions is not None and ext not in self.file_server.allowed_extensions:
+            logger.warning(f"Forbidden file access: {original_file_path}")
+            return "File type not allowed", 403
+
+        # Determine the expected thumbnail path
+        thumbnail_path = self.file_server.get_thumbnail_path(original_file_path)
+
+        if not os.path.exists(thumbnail_path):
+            logger.info(f"Thumbnail not found for {filepath}. Generating...")
+            generated_path = self.file_server.generate_thumbnail(original_file_path)
+
+            if not generated_path:
+                logger.error(f"Could not generate thumbnail for {filepath}")
+                return "Thumbnail generation failed", 500
+
+        return send_from_directory(os.path.dirname(thumbnail_path), os.path.basename(thumbnail_path))
+
+
 
     def run(self):
         logger.info(f"Starting FileServerAPI on {self.host}:{self.port}")
