@@ -1,5 +1,5 @@
 import pytest
-
+from typing import List
 
 
 def test_delimination():
@@ -14,3 +14,30 @@ def test_delimination():
         strs.append(substr)
 
     pass
+
+
+
+
+
+def test_generate_directory_list():
+    def generate_directory_list(path: str) -> List[str]:
+        directory_list = []
+        current_path = None  # Start as None to clearly differentiate first iteration
+
+        for part in path.split("/"):
+            if current_path is None:
+                current_path = part  # First part is assigned directly
+            else:
+                current_path = f"{current_path}/{part}"  # Concatenating with "/"
+            directory_list.append(current_path)
+
+        return directory_list
+
+    path = "root/Furry/fursuit/test"
+    expected = [
+        "root",
+        "root/Furry",
+        "root/Furry/fursuit",
+        "root/Furry/fursuit/test"
+    ]
+    assert generate_directory_list(path) == expected

@@ -67,6 +67,20 @@ class FileServer:
         <count of media files>|<count of subfolders>|<media file 0>|<media file 1>|...|<subfolder 0>|<subfolder 1>
         """
 
+        original_requested_subfolder = subfolder
+
+        # If subfolder starts with "root/", remove it
+        if subfolder.startswith("root/"):
+            subfolder = subfolder[4:]
+
+        subfolder = os.path.normpath(subfolder)
+
+        # Replace all \ with /
+        subfolder = subfolder.replace("\\", "/")
+
+        # Replace all // with /
+        subfolder = subfolder.replace("//", "/")
+
         # If subfolder starts with a slash, remove it
         if subfolder.startswith("/"):
             subfolder = subfolder[1:]
@@ -75,14 +89,8 @@ class FileServer:
         if subfolder.endswith("/"):
             subfolder = subfolder[:-1]
 
-        # Replace all \ with /
-        subfolder = subfolder.replace("\\", "/")
-
-        # Replace all consecutive slashes with a single slash
-        subfolder = os.path.normpath(subfolder)
-
         full_dir_path = os.path.abspath(os.path.join(self.root_dir, subfolder))
-        logger.info(f"Requested subfolder: {subfolder}, full path: {full_dir_path}")
+        logger.info(f"Requested subfolder: {subfolder}, original: {original_requested_subfolder}, full path: {full_dir_path}")
 
         # Security check: Prevent directory traversal attacks
         if not full_dir_path.startswith(self.root_dir):
@@ -108,6 +116,11 @@ class FileServer:
 
         # Get list of subfolders
         subfolders = []
+
+        # Append ".." to subfolders if not in root directory, meaning we need to allow the ability to go up
+        if subfolder not in ["", "."]:
+            subfolders.append("..")
+
         for d in os.listdir(full_dir_path):
             if os.path.isdir(os.path.join(full_dir_path, d)):
                 subfolders.append(d)
@@ -120,8 +133,27 @@ class FileServer:
             files_with_dates.sort(key=lambda x: x[1], reverse=True)
             files = [file[0] for file in files_with_dates]
 
+        result = ""
+
+        # Append the normalized subfolder path
+
+        # If subfolder does not start with "root/", add it,
+        # and if it starts with /, remove it
+
+        if subfolder.startswith("."):
+            subfolder = self.format_string(subfolder[1:])
+
+        if subfolder.startswith("/"):
+            subfolder = self.format_string(subfolder[1:])
+
+        if not subfolder.startswith("root/"):
+            subfolder = self.format_string("root/" + subfolder)
+
+        normalized_subfolder_path = self.format_string(subfolder)
+        result += normalized_subfolder_path
+
         # Construct the pipe-separated response string
-        result = self.format_string(str(len(subfolders))) + self.format_string(str(len(files)))
+        result += self.format_string(str(len(subfolders))) + self.format_string(str(len(files)))
 
         for folder in subfolders:
             result += self.format_string(folder)
@@ -173,7 +205,10 @@ class FileServerAPI:
             # Serve file correctly
             return send_from_directory(directory, filename)
 
-        @self.app.route('/get-files', methods=['GET'])
+
+        # This should be a GET endpoint, but we have to use POST because
+        # Resonite can't send a body with a GET request.pp
+        @self.app.route('/get-files', methods=['POST'])
         def get_files():
             """Returns a pipe-separated string with file and folder info."""
             try:
@@ -204,7 +239,8 @@ if __name__ == "__main__":
     blacklisted_folders = ["ignore", "private"]  # Define blacklisted subfolder names
     public_url = "https://gallery.ikubaysan.com:8443"  # Set your custom domain
 
-    allowed_extensions = []  # Empty list means all extensions are allowed
+    # Empty list means all extensions are allowed
+    allowed_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".webp"]
 
     server = FileServer(root_directory, blacklisted_subfolders=blacklisted_folders, allowed_extensions=allowed_extensions)
     api = FileServerAPI(server, host="0.0.0.0", port=8443, public_url=public_url)
