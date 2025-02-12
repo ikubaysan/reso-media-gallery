@@ -41,3 +41,29 @@ def test_generate_directory_list():
         "root/Furry/fursuit/test"
     ]
     assert generate_directory_list(path) == expected
+
+def test_generate_directory_list_preallocated():
+    def generate_directory_list_preallocated(path: str) -> List[str]:
+        directory_list = [""] * 10  # Pre-allocate list with 10 empty strings
+        current_path = None
+        index = 0
+
+        for part in path.split("/"):
+            if current_path is None:
+                current_path = part
+            else:
+                current_path = f"{current_path}/{part}"
+            directory_list[index] = current_path  # Populate in order
+            index += 1
+
+        return directory_list
+
+    path = "root/Furry/fursuit/test"
+    expected = [
+        "root",
+        "root/Furry",
+        "root/Furry/fursuit",
+        "root/Furry/fursuit/test",
+        "", "", "", "", "", ""  # Remaining elements remain empty
+    ]
+    assert generate_directory_list_preallocated(path) == expected
