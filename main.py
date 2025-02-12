@@ -47,16 +47,42 @@ class ThumbnailDatabase:
         self._initialize_db()
 
     def _initialize_db(self):
-        """Create the database table if it doesn't exist."""
+        """Create necessary database tables if they don't exist."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
+
+            # Create the thumbnails table if it doesn't exist
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS thumbnails (
                     original_path TEXT PRIMARY KEY,
                     thumbnail_guid TEXT UNIQUE
                 )
             """)
-            conn.commit()
+
+            # Create metadata table to store database GUID
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS metadata (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    db_guid TEXT UNIQUE NOT NULL
+                )
+            """)
+
+            # Ensure the metadata table contains a GUID
+            cursor.execute("SELECT db_guid FROM metadata WHERE id = 1")
+            result = cursor.fetchone()
+
+            if not result:
+                db_guid = str(uuid.uuid4())  # Generate new GUID for the database
+                cursor.execute("INSERT INTO metadata (id, db_guid) VALUES (1, ?)", (db_guid,))
+                conn.commit()
+
+    def get_database_guid(self) -> str:
+        """Retrieve the GUID of the database."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT db_guid FROM metadata WHERE id = 1")
+            result = cursor.fetchone()
+            return result[0] if result else "UNKNOWN"
 
     def get_thumbnail_guid(self, original_path: str) -> Optional[str]:
         """Retrieve the GUID filename for a given original file, if it exists."""
@@ -121,6 +147,10 @@ class FileServer:
 
         try:
             with Image.open(filepath) as img:
+                # Convert to RGB if the image is in 'P' or 'RGBA' mode
+                if img.mode in ("P", "RGBA"):
+                    img = img.convert("RGB")
+
                 img.thumbnail(THUMBNAIL_SIZE)
                 img.save(thumbnail_path, format="JPEG")
                 logger.info(f"Thumbnail generated: {thumbnail_path}")
@@ -129,7 +159,6 @@ class FileServer:
         except Exception as e:
             logger.error(f"Failed to generate thumbnail for {filepath}: {e}")
             return None
-
 
     def is_blacklisted(self, subfolder: str) -> bool:
         """Checks if any part of the requested subfolder is blacklisted."""
@@ -222,6 +251,10 @@ class FileServer:
 
         result = ""
 
+        db_guid = self.db.get_database_guid()
+
+        result += self.format_string(db_guid)  # Append the database GUID
+
         # Append the normalized subfolder path
 
         # If subfolder does not start with "root/", add it,
@@ -240,7 +273,8 @@ class FileServer:
         result += normalized_subfolder_path
 
         # Construct the pipe-separated response string
-        result += self.format_string(str(len(subfolders))) + self.format_string(str(len(files)))
+        result += self.format_string(str(len(subfolders)))
+        result += self.format_string(str(len(files)))
 
         for folder in subfolders:
             result += self.format_string(folder)
@@ -262,12 +296,20 @@ class FileServerAPI:
         # Serve files from the root directory
         @self.app.route('/files/<path:filepath>', methods=['GET'])
         def serve_file(filepath):
-            """Serves files from /files/."""
+            """
+            Serves files from /files/.
+            Example: http://localhost:5000/files/root/folder/image.jpg?session_id=123
+            """
+            session_id = request.args.get("session_id")  # Doesn't affect functionality
             return self.serve_static_file(filepath, base_path=self.file_server.root_dir)
 
         @self.app.route('/thumbs/<path:filepath>', methods=['GET'])
         def serve_thumbnail(filepath):
-            """Serves or generates thumbnails dynamically."""
+            """
+            Serves or generates thumbnails dynamically.
+            Example: http://localhost:5000/thumbs/root/folder/image.jpg?session_id=123
+            """
+            session_id = request.args.get("session_id")  # Doesn't affect functionality
             return self.serve_or_generate_thumbnail(filepath)
 
         # This should be a GET endpoint, but we have to use POST because
