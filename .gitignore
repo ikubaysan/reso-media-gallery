@@ -6,3 +6,5 @@ test/.pytest_cache/
 *.pem
 thumbnails/
 *.db
+*.zip
+config.ini

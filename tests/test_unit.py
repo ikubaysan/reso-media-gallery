@@ -42,19 +42,16 @@ def test_generate_directory_list():
     ]
     assert generate_directory_list(path) == expected
 
+
 def test_generate_directory_list_preallocated():
     def generate_directory_list_preallocated(path: str) -> List[str]:
+        parts = path.split("/")
         directory_list = [""] * 10  # Pre-allocate list with 10 empty strings
-        current_path = None
-        index = 0
+        current_path = ""
 
-        for part in path.split("/"):
-            if current_path is None:
-                current_path = part
-            else:
-                current_path = f"{current_path}/{part}"
-            directory_list[index] = current_path  # Populate in order
-            index += 1
+        for i in range(min(len(parts), len(directory_list))):
+            current_path = parts[i] if i == 0 else f"{current_path}/{parts[i]}"
+            directory_list[i] = current_path  # Assign built path to each slot
 
         return directory_list
 
@@ -67,3 +64,5 @@ def test_generate_directory_list_preallocated():
         "", "", "", "", "", ""  # Remaining elements remain empty
     ]
     assert generate_directory_list_preallocated(path) == expected
+
+test_generate_directory_list_preallocated()
