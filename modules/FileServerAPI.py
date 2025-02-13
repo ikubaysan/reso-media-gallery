@@ -26,7 +26,7 @@ class FileServerAPI:
             Example: http://localhost:5000/files/root/folder/image.jpg?session_id=123
             """
             session_id = request.args.get("session_id")  # Doesn't affect functionality
-            return self.serve_static_file(filepath, base_path=self.file_server.root_dir)
+            return self.serve_static_file(filepath, base_path=self.file_server.media_root_dir)
 
         @self.app.route('/thumbs/<path:filepath>', methods=['GET'])
         def serve_thumbnail(filepath):
@@ -83,10 +83,10 @@ class FileServerAPI:
     def serve_or_generate_thumbnail(self, filepath):
         """Serve cached thumbnails or generate them on demand."""
         filepath = unquote(filepath)
-        original_file_path = os.path.abspath(os.path.join(self.file_server.root_dir, filepath))
+        original_file_path = os.path.abspath(os.path.join(self.file_server.media_root_dir, filepath))
 
         # Security check to prevent directory traversal attacks
-        if not original_file_path.startswith(self.file_server.root_dir):
+        if not original_file_path.startswith(self.file_server.media_root_dir):
             logger.warning(f"Security Alert: Attempted access outside root - {filepath}")
             return "Access denied", 403
 

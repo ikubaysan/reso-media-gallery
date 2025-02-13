@@ -26,13 +26,14 @@ if __name__ == "__main__":
 
     # Ensure thumbnail directory exists
     os.makedirs(config.thumbnail_dir, exist_ok=True)
+    thumbnail_dir = os.path.abspath(config.thumbnail_dir)
 
     server = FileServer(
         db_path=config.db_path,
         blacklisted_subfolders=config.blacklisted_folders,
         allowed_extensions=config.allowed_extensions,
-        root_dir=config.root_directory,
-        thumbnail_dir=config.thumbnail_dir,
+        media_root_dir=config.media_root_directory,
+        thumbnail_dir=thumbnail_dir,
         thumbnail_size=config.thumbnail_size,
         max_response_part_length=config.max_response_part_length
     )

@@ -15,7 +15,7 @@ class FileServer:
         thumbnail_dir: str,
         thumbnail_size: Tuple[int, int],
         max_response_part_length: int,
-        root_dir: str,
+        media_root_dir: str,
         allowed_extensions: Optional[List[str]] = None,
         blacklisted_subfolders: Optional[List[str]] = None,
     ):
@@ -23,21 +23,21 @@ class FileServer:
         # Log all of the parameters
         logger.info(f"db_path: {db_path}\nthumbnail_dir: {thumbnail_dir}\nthumbnail_size: {thumbnail_size}\n"
                     f"max_response_part_length: {max_response_part_length}\n"
-                    f"root_dir: {root_dir}\nallowed_extensions: {allowed_extensions}\n"
+                    f"media_root_dir: {media_root_dir}\nallowed_extensions: {allowed_extensions}\n"
                     f"blacklisted_subfolders: {blacklisted_subfolders}")
 
-        self.root_dir = os.path.abspath(root_dir)
+        self.media_root_dir = os.path.abspath(media_root_dir)
         self.db = ThumbnailDatabase(db_path)
         self.thumbnail_size = thumbnail_size
         self.max_response_part_length = max_response_part_length
-        self.thumbnail_dir = os.path.join(self.root_dir, thumbnail_dir)
+        self.thumbnail_dir = thumbnail_dir
         self.allowed_extensions = set(allowed_extensions) if allowed_extensions else None  # Allow all if empty
         self.blacklisted_subfolders = set(blacklisted_subfolders or [])
 
-        if not os.path.exists(self.root_dir):
-            raise ValueError(f"Root directory does not exist: {self.root_dir}")
+        if not os.path.exists(self.media_root_dir):
+            raise ValueError(f"Root directory does not exist: {self.media_root_dir}")
 
-        logger.info(f"FileServer initialized with root directory: {self.root_dir}")
+        logger.info(f"FileServer initialized with root directory: {self.media_root_dir}")
         if self.allowed_extensions:
             logger.info(f"Allowed Extensions: {', '.join(self.allowed_extensions)}")
         else:
@@ -124,11 +124,11 @@ class FileServer:
         if subfolder.endswith("/"):
             subfolder = subfolder[:-1]
 
-        full_dir_path = os.path.abspath(os.path.join(self.root_dir, subfolder))
+        full_dir_path = os.path.abspath(os.path.join(self.media_root_dir, subfolder))
         logger.info(f"Requested subfolder: {subfolder}, original: {original_requested_subfolder}, full path: {full_dir_path}")
 
         # Security check: Prevent directory traversal attacks
-        if not full_dir_path.startswith(self.root_dir):
+        if not full_dir_path.startswith(self.media_root_dir):
             raise ValueError(f"Attempted directory traversal attack with path: {subfolder}")
 
         if self.is_blacklisted(subfolder):

@@ -17,7 +17,7 @@ class Config:
         self.max_response_part_length: int = self.config.getint("General", "MAX_LENGTH", fallback=260)
 
         # Server settings
-        self.root_directory: str = self.config.get("Server", "ROOT_DIRECTORY", fallback=r"C:\Users\PC\Pictures")
+        self.media_root_directory: str = self.config.get("Server", "media_root_dirECTORY", fallback=r"C:\Users\PC\Pictures")
         self.blacklisted_folders: List[str] = self.config.get("Server", "BLACKLISTED_FOLDERS",
                                                               fallback="ignore,private").split(",")
         self.allowed_extensions: List[str] = self.config.get("Server", "ALLOWED_EXTENSIONS",
