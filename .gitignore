@@ -5,6 +5,7 @@ __pycache__/
 test/.pytest_cache/
 *.pem
 thumbnails/
+share/
 *.db
 *.zip
 config.ini
