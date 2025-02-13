@@ -20,6 +20,12 @@ class FileServer:
         blacklisted_subfolders: Optional[List[str]] = None,
     ):
 
+        # Log all of the parameters
+        logger.info(f"db_path: {db_path}\nthumbnail_dir: {thumbnail_dir}\nthumbnail_size: {thumbnail_size}\n"
+                    f"max_response_part_length: {max_response_part_length}\n"
+                    f"root_dir: {root_dir}\nallowed_extensions: {allowed_extensions}\n"
+                    f"blacklisted_subfolders: {blacklisted_subfolders}")
+
         self.root_dir = os.path.abspath(root_dir)
         self.db = ThumbnailDatabase(db_path)
         self.thumbnail_size = thumbnail_size
