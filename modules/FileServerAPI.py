@@ -39,6 +39,7 @@ class FileServerAPI:
 
         # This should be a GET endpoint, but we have to use POST because
         # Resonite can't send a body with a GET request.pp
+        # Example with session id and sorting: http://localhost:5000/get-files?sort_by=name&session_id=123
         @self.app.route('/get-files', methods=['POST'])
         def get_files():
             """Returns a pipe-separated string with file and folder info."""
@@ -48,6 +49,10 @@ class FileServerAPI:
 
                 if not subfolder:
                     logger.info("No subfolder name defined, using root directory.")
+
+                if not sort_by:
+                    logger.info("No sort_by parameter defined, sorting by name.")
+                    sort_by = "name"
 
                 result = self.file_server.get_files_and_subfolders_in_subfolder(subfolder, self.public_url, sort_by)
                 return result
