@@ -2,7 +2,7 @@ import os
 import uuid
 from typing import Optional, List, Tuple
 from urllib.parse import quote
-from PIL import Image
+from PIL import Image, ImageOps
 from modules.ThumbnailDatabase import ThumbnailDatabase
 import logging
 
@@ -66,6 +66,9 @@ class FileServer:
 
         try:
             with Image.open(filepath) as img:
+                # Correct orientation based on Exif metadata
+                img = ImageOps.exif_transpose(img)
+
                 # Convert to RGB if the image is in 'P' or 'RGBA' mode
                 if img.mode in ("P", "RGBA"):
                     img = img.convert("RGB")
