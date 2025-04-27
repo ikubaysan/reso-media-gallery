@@ -43,6 +43,7 @@ class FileServerAPI:
         @self.app.route('/get-files', methods=['POST'])
         def get_files():
             """Returns a pipe-separated string with file and folder info."""
+            logger.info(f"Received request to get files in subfolder: {request.data.decode('utf-8').strip()}")
             try:
                 subfolder = request.data.decode('utf-8').strip()
                 sort_by = request.args.get("sort_by")
